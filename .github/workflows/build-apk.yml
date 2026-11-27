@@ -21,10 +21,10 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Set up JDK 17
+      - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
+          java-version: '21'
           distribution: 'temurin'
 
       - name: Install dependencies and build web app
@@ -35,7 +35,13 @@ jobs:
       - name: Setup Capacitor and Android
         run: |
           npm install --legacy-peer-deps @capacitor/core @capacitor/cli @capacitor/android
-          npx cap init "PolyDrift" "com.polydrift.game" --web-dir dist
+          cat << 'EOF' > capacitor.config.json
+          {
+            "appId": "com.polydrift.game",
+            "appName": "PolyDrift",
+            "webDir": "dist"
+          }
+          EOF
           npx cap add android
 
       - name: Build Debug APK
