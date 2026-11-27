@@ -1,4 +1,4 @@
-name: Build Web Game to APK
+name: Build PolyDrift APK
 
 on:
   push:
@@ -13,45 +13,78 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Unzip game files
-        run: unzip -o "*.zip"
-
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
-          java-version: '21'
           distribution: 'temurin'
+          java-version: '21'
 
-      - name: Install dependencies and build web app
+      - name: Extract Game Zip
+        run: |
+          if ls *.zip 1> /dev/null 2>&1; then
+            mkdir -p game_src
+            ZIP_FILE=$(ls *.zip | head -n 1)
+            unzip -o "$ZIP_FILE" -d game_src
+            APP_DIR=$(dirname "$(find game_src -maxdepth 2 -name package.json | head -n 1)")
+          else
+            APP_DIR="."
+          fi
+          echo "APP_DIR=$APP_DIR" >> $GITHUB_ENV
+
+      - name: Install and Build Web Game
+        working-directory: ${{ env.APP_DIR }}
         run: |
           npm install --legacy-peer-deps
-          npm run build
+          npm run build || npx vite build
 
-      - name: Setup Capacitor and Android
+      - name: Setup Capacitor Android
+        working-directory: ${{ env.APP_DIR }}
         run: |
-          npm install --legacy-peer-deps @capacitor/core @capacitor/cli @capacitor/android
-          cat << 'EOF' > capacitor.config.json
+          npm install @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7 --legacy-peer-deps
+          WEB_DIR="dist"
+          if [ ! -d "$WEB_DIR" ] && [ -d "build" ]; then WEB_DIR="build"; fi
+          rm -f capacitor.config.ts capacitor.config.json
+          rm -rf android
+          cat <<EOF > capacitor.config.json
           {
-            "appId": "com.polydrift.game",
-            "appName": "PolyDrift",
-            "webDir": "dist"
+            "appId": "com.satish.polydrift",
+            "appName": "PolyDrift 3D",
+            "webDir": "$WEB_DIR"
           }
           EOF
           npx cap add android
+          npx cap sync android
+
+      - name: Fix Kotlin Duplicate Class
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          cat <<'EOF' >> android/build.gradle
+
+          allprojects {
+              configurations.all {
+                  resolutionStrategy.eachDependency { details ->
+                      if (details.requested.group == 'org.jetbrains.kotlin' && (details.requested.name == 'kotlin-stdlib-jdk7' || details.requested.name == 'kotlin-stdlib-jdk8')) {
+                          details.useVersion '1.8.22'
+                      }
+                  }
+              }
+          }
+          EOF
 
       - name: Build Debug APK
+        working-directory: ${{ env.APP_DIR }}/android
         run: |
-          cd android
           chmod +x gradlew
           ./gradlew assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: PolyDrift-APK
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: PolyDrift-3D-APK
+          path: ${{ env.APP_DIR }}/android/app/build/outputs/apk/debug/app-debug.apk
+
