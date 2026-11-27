@@ -36,6 +36,72 @@ jobs:
           fi
           echo "APP_DIR=$APP_DIR" >> $GITHUB_ENV
 
+      - name: Make GitHub 3D Models Offline
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          node << 'EOF'
+          const fs = require('fs');
+          const path = require('path');
+
+          const urlRegex = /https?:\/\/(?:raw\.githubusercontent\.com|[\w-]+\.github\.io|cdn\.jsdelivr\.net\/gh|github\.com)\/[^\s"'`<>)]+?\.(?:glb|gltf|obj|fbx|bin|png|jpg|jpeg|webp|mp3|wav|ogg)(?:\?[^\s"'`<>)]*)?/gi;
+          const outDir = path.join(process.cwd(), 'public', 'models');
+          fs.mkdirSync(outDir, { recursive: true });
+
+          function getFiles(dir, list = []) {
+            if (!fs.existsSync(dir)) return list;
+            for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+              if (['node_modules', 'dist', 'android', '.git'].includes(entry.name)) continue;
+              const full = path.join(dir, entry.name);
+              if (entry.isDirectory()) getFiles(full, list);
+              else if (/\.(ts|tsx|js|jsx|json|html|css)$/i.test(entry.name)) list.push(full);
+            }
+            return list;
+          }
+
+          (async () => {
+            const files = getFiles(process.cwd());
+            const urlMap = new Map();
+            let count = 0;
+
+            for (const file of files) {
+              let content = fs.readFileSync(file, 'utf8');
+              const matches = content.match(urlRegex);
+              if (!matches) continue;
+
+              let changed = false;
+              for (const rawUrl of new Set(matches)) {
+                if (!urlMap.has(rawUrl)) {
+                  try {
+                    console.log('Downloading:', rawUrl);
+                    const res = await fetch(rawUrl);
+                    if (!res.ok) {
+                      console.warn(`Skip (${res.status}):`, rawUrl);
+                      continue;
+                    }
+                    const cleanUrl = rawUrl.split('?')[0];
+                    let rawName = path.basename(cleanUrl);
+                    try { rawName = decodeURIComponent(rawName); } catch {}
+                    const safeName = rawName.replace(/[^a-zA-Z0-9._-]/g, '_');
+                    const localName = `${count++}_${safeName}`;
+                    const buf = Buffer.from(await res.arrayBuffer());
+                    fs.writeFileSync(path.join(outDir, localName), buf);
+                    urlMap.set(rawUrl, `./models/${localName}`);
+                  } catch (err) {
+                    console.warn('Skip error:', rawUrl, err.message);
+                    continue;
+                  }
+                }
+                if (urlMap.has(rawUrl)) {
+                  content = content.split(rawUrl).join(urlMap.get(rawUrl));
+                  changed = true;
+                }
+              }
+              if (changed) fs.writeFileSync(file, content, 'utf8');
+            }
+            console.log(`Total ${urlMap.size} files offline pack ho gayi!`);
+          })();
+          EOF
+
       - name: Install and Build Web Game
         working-directory: ${{ env.APP_DIR }}
         run: |
