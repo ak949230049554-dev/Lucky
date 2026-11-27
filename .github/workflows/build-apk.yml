@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build Web Game to APK
 
 on:
   push:
@@ -13,20 +13,39 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Unzip game files
+        run: unzip -o "*.zip"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
+      - name: Install dependencies and build web app
+        run: |
+          npm install
+          npm run build
+
+      - name: Setup Capacitor and Android
+        run: |
+          npm install @capacitor/core @capacitor/cli @capacitor/android
+          npx cap init "PolyDrift" "com.polydrift.game" --web-dir dist
+          npx cap add android
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: PolyDrift-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
